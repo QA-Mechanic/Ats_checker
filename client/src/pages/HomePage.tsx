@@ -7,51 +7,25 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Sparkles, ArrowRight, FileText, Zap, Target } from "lucide-react"
 
+interface AnalysisResult {
+  matchScore: number
+  matchedKeywords: Array<{ keyword: string; count: number }>
+  missingKeywords: string[]
+  suggestions: Array<{
+    keyword: string
+    location: string
+    context: string
+    suggestion: string
+  }>
+}
+
 export default function HomePage() {
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [jobDescription, setJobDescription] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showResults, setShowResults] = useState(false)
-
-  // Mock analysis results - will be replaced with real API call
-  const mockResults = {
-    matchScore: 72,
-    matchedKeywords: [
-      { keyword: "JavaScript", count: 5 },
-      { keyword: "React", count: 3 },
-      { keyword: "TypeScript", count: 2 },
-      { keyword: "Node.js", count: 4 },
-      { keyword: "REST API", count: 2 },
-      { keyword: "Git", count: 1 },
-    ],
-    missingKeywords: [
-      "Problem Solving",
-      "Team Leadership",
-      "Agile Methodology",
-      "Communication Skills",
-      "Attention to Detail"
-    ],
-    suggestions: [
-      {
-        keyword: "Problem Solving",
-        location: "Senior Developer Experience Section",
-        context: "Led development of microservices architecture for e-commerce platform",
-        suggestion: "Led development of microservices architecture for e-commerce platform, demonstrating strong problem-solving skills by identifying and resolving complex technical challenges in distributed systems"
-      },
-      {
-        keyword: "Team Leadership",
-        location: "Tech Lead Role Description",
-        context: "Managed team of 5 developers on React project",
-        suggestion: "Provided team leadership to a group of 5 developers on React project, mentoring junior developers and coordinating sprint planning sessions"
-      },
-      {
-        keyword: "Agile Methodology",
-        location: "Project Experience Section",
-        context: "Delivered features for customer portal",
-        suggestion: "Delivered features for customer portal using Agile methodology, participating in daily standups, sprint planning, and retrospectives"
-      }
-    ]
-  }
+  const [analysisResults, setAnalysisResults] = useState<AnalysisResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const handleAnalyze = async () => {
     if (!resumeFile || !jobDescription.trim()) {
@@ -59,16 +33,40 @@ export default function HomePage() {
     }
 
     setIsAnalyzing(true)
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    setIsAnalyzing(false)
-    setShowResults(true)
+    setError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('resume', resumeFile)
+      formData.append('jobDescription', jobDescription)
+
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || 'Analysis failed')
+      }
+
+      const results = await response.json()
+      setAnalysisResults(results)
+      setShowResults(true)
+    } catch (err) {
+      console.error('Analysis error:', err)
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred')
+    } finally {
+      setIsAnalyzing(false)
+    }
   }
 
   const handleNewScan = () => {
     setResumeFile(null)
     setJobDescription("")
     setShowResults(false)
+    setAnalysisResults(null)
+    setError(null)
   }
 
   return (
@@ -201,6 +199,18 @@ export default function HomePage() {
               </CardContent>
             </Card>
 
+            {/* Error Message */}
+            {error && (
+              <Card className="border-destructive">
+                <CardContent className="pt-6">
+                  <p className="text-destructive font-medium">Error: {error}</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Please try again or contact support if the problem persists.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Analyze Button */}
             <div className="flex justify-center">
               <Button
@@ -226,7 +236,7 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="max-w-6xl mx-auto">
-            <AnalysisResults {...mockResults} />
+            {analysisResults && <AnalysisResults {...analysisResults} />}
           </div>
         )}
       </main>
