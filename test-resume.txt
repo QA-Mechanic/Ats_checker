@@ -1,0 +1,18 @@
+John Doe
+Software Developer
+
+EXPERIENCE:
+Software Developer at ABC Company (2021-2023)
+- Developed web applications using JavaScript and HTML
+- Worked with databases
+- Fixed bugs and issues
+
+SKILLS:
+- JavaScript
+- HTML
+- CSS
+- Git
+
+EDUCATION:
+Bachelor's in Computer Science
+XYZ University (2017-2021)

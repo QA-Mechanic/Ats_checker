@@ -1,9 +1,13 @@
 import mammoth from 'mammoth';
+import fs from 'fs';
 
 export async function extractTextFromFile(file: Express.Multer.File): Promise<string> {
-  const { buffer, mimetype, originalname } = file;
+  const { path, mimetype, originalname } = file;
   
   try {
+    // Read file buffer from disk
+    const buffer = await fs.promises.readFile(path);
+    
     switch (mimetype) {
       case 'application/pdf':
         return await extractFromPDF(buffer);
@@ -24,7 +28,7 @@ export async function extractTextFromFile(file: Express.Multer.File): Promise<st
 async function extractFromPDF(buffer: Buffer): Promise<string> {
   try {
     // Dynamic import to avoid initialization issues
-    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
+    const pdfjsLib = await import('pdfjs-dist');
     
     const uint8Array = new Uint8Array(buffer);
     const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise;

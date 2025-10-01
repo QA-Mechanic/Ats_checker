@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { FileUpload } from "@/components/FileUpload"
-import { AnalysisResults } from "@/components/AnalysisResults"
+import { ImprovedAnalysisResults } from "@/components/ImprovedAnalysisResults"
+import { ModernLoadingScreen } from "@/components/ModernLoadingScreen"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,21 +12,37 @@ interface AnalysisResult {
   matchScore: number
   matchedKeywords: Array<{ keyword: string; count: number }>
   missingKeywords: string[]
+  resumeText: string
   suggestions: Array<{
+    id: string
+    type: 'replace' | 'add' | 'enhance'
     keyword: string
     location: string
-    context: string
-    suggestion: string
+    originalText: string
+    suggestedText: string
+    reason: string
+    impact: 'high' | 'medium' | 'low'
+    category: 'skills' | 'experience' | 'keywords' | 'formatting'
   }>
+  contextualInsights: {
+    resumeStrengths: string[]
+    improvementAreas: string[]
+    overallTone: string
+    experienceLevel: string
+  }
 }
 
 export default function HomePage() {
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [jobDescription, setJobDescription] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analysisStage, setAnalysisStage] = useState<'uploading' | 'extracting' | 'analyzing' | 'generating' | 'complete'>('analyzing')
   const [showResults, setShowResults] = useState(false)
   const [analysisResults, setAnalysisResults] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [appliedSuggestions, setAppliedSuggestions] = useState<string[]>([])
+  const [updatedResumeText, setUpdatedResumeText] = useState<string>("")
+  const [isProcessing, setIsProcessing] = useState(false)
 
   const handleAnalyze = async () => {
     if (!resumeFile || !jobDescription.trim()) {
@@ -36,11 +53,13 @@ export default function HomePage() {
     setError(null)
 
     try {
+      setAnalysisStage('uploading')
       const formData = new FormData()
       formData.append('resume', resumeFile)
       formData.append('jobDescription', jobDescription)
 
-      const response = await fetch('/api/analyze', {
+      setAnalysisStage('extracting')
+      const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       })
@@ -50,8 +69,17 @@ export default function HomePage() {
         throw new Error(errorData.message || 'Analysis failed')
       }
 
+      setAnalysisStage('analyzing')
+      await new Promise(resolve => setTimeout(resolve, 500)) // Brief pause for UX
+      
+      setAnalysisStage('generating')
       const results = await response.json()
+      
+      setAnalysisStage('complete')
+      await new Promise(resolve => setTimeout(resolve, 300)) // Brief pause to show completion
+      
       setAnalysisResults(results)
+      setUpdatedResumeText(results.resumeText) // Set initial resume text
       setShowResults(true)
     } catch (err) {
       console.error('Analysis error:', err)
@@ -67,6 +95,144 @@ export default function HomePage() {
     setShowResults(false)
     setAnalysisResults(null)
     setError(null)
+    setAppliedSuggestions([])
+    setUpdatedResumeText("")
+  }
+
+  const handleApplySuggestion = async (suggestion: any) => {
+    setIsProcessing(true)
+    try {
+      const response = await fetch('/api/apply-suggestion', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          resumeText: updatedResumeText,
+          suggestion: suggestion
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to apply suggestion')
+      }
+
+      const result = await response.json()
+      setUpdatedResumeText(result.updatedResume)
+      setAppliedSuggestions(prev => [...prev, suggestion.id])
+    } catch (error) {
+      console.error('Apply suggestion error:', error)
+      setError('Failed to apply suggestion')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const handleRegenerateSuggestions = async (preferences?: any) => {
+    if (!analysisResults) return
+
+    setIsProcessing(true)
+    try {
+      const response = await fetch('/api/regenerate-suggestions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          resumeText: updatedResumeText,
+          jobDescription: jobDescription,
+          preferences: preferences
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to regenerate suggestions')
+      }
+
+      const result = await response.json()
+      setAnalysisResults(prev => ({
+        ...prev!,
+        suggestions: result.suggestions,
+        contextualInsights: result.contextualInsights
+      }))
+    } catch (error) {
+      console.error('Regenerate suggestions error:', error)
+      setError('Failed to regenerate suggestions')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const handleReAnalyze = async () => {
+    if (!updatedResumeText || !jobDescription) {
+      setError('No changes to re-analyze')
+      return
+    }
+
+    setIsProcessing(true)
+    try {
+      const response = await fetch('/api/re-analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          resumeText: updatedResumeText,
+          jobDescription: jobDescription
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to re-analyze resume')
+      }
+
+      const result = await response.json()
+      setAnalysisResults(result)
+    } catch (error) {
+      console.error('Re-analyze error:', error)
+      setError('Failed to re-analyze resume')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const handleDownload = async (format: 'pdf' | 'docx') => {
+    try {
+      if (!updatedResumeText) {
+        setError('No resume text available for download')
+        return
+      }
+
+      const response = await fetch(`/api/download/${format}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          resumeText: updatedResumeText,
+          fileName: `improved_resume_${Date.now()}`
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to download ${format.toUpperCase()}`)
+      }
+
+      // Create blob and download
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.style.display = 'none'
+      a.href = url
+      a.download = `improved_resume_${Date.now()}.${format}`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error('Download error:', error)
+      setError(`Failed to download ${format.toUpperCase()}`)
+    }
   }
 
   return (
@@ -236,9 +402,26 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="max-w-6xl mx-auto">
-            {analysisResults && <AnalysisResults {...analysisResults} />}
+            {analysisResults && (
+              <ImprovedAnalysisResults
+                results={analysisResults}
+                onNewScan={handleNewScan}
+                onApplySuggestion={handleApplySuggestion}
+                onRegenerateSuggestions={handleRegenerateSuggestions}
+                onReAnalyze={handleReAnalyze}
+                onDownload={handleDownload}
+                appliedSuggestions={appliedSuggestions}
+                isProcessing={isProcessing}
+              />
+            )}
           </div>
         )}
+        
+        {/* Modern Loading Screen */}
+        <ModernLoadingScreen 
+          isLoading={isAnalyzing} 
+          stage={analysisStage}
+        />
       </main>
 
       {/* Footer */}

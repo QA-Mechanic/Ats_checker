@@ -13,16 +13,31 @@ function getOpenAIClient(): OpenAI {
   return openai;
 }
 
-interface AnalysisResult {
+interface AIAnalysisResult {
   matchScore: number;
   matchedKeywords: Array<{ keyword: string; count: number }>;
   missingKeywords: string[];
   suggestions: Array<{
+    id: string;
+    type: 'replace' | 'add' | 'enhance';
     keyword: string;
     location: string;
-    context: string;
-    suggestion: string;
+    originalText: string;
+    suggestedText: string;
+    reason: string;
+    impact: 'high' | 'medium' | 'low';
+    category: 'skills' | 'experience' | 'keywords' | 'formatting';
   }>;
+  contextualInsights: {
+    resumeStrengths: string[];
+    improvementAreas: string[];
+    overallTone: string;
+    experienceLevel: string;
+  };
+}
+
+interface AnalysisResult extends AIAnalysisResult {
+  resumeText: string;
 }
 
 export async function analyzeResume(
@@ -39,13 +54,33 @@ export async function analyzeResume(
   // Use OpenAI to analyze the resume against job description
   const analysis = await performAIAnalysis(resumeText, jobDescription);
   
-  return analysis;
+  return {
+    ...analysis,
+    resumeText
+  };
+}
+
+export async function analyzeResumeText(
+  resumeText: string,
+  jobDescription: string
+): Promise<AnalysisResult> {
+  if (!resumeText || resumeText.trim().length === 0) {
+    throw new Error('Resume text is empty');
+  }
+
+  // Use OpenAI to analyze the resume against job description
+  const analysis = await performAIAnalysis(resumeText, jobDescription);
+  
+  return {
+    ...analysis,
+    resumeText
+  };
 }
 
 async function performAIAnalysis(
   resumeText: string,
   jobDescription: string
-): Promise<AnalysisResult> {
+): Promise<AIAnalysisResult> {
   const prompt = `
 You are an expert ATS (Applicant Tracking System) analyzer. Compare the resume text against the job description and provide a detailed analysis.
 
@@ -66,27 +101,53 @@ Please analyze and return a JSON response with the following structure:
   ],
   "suggestions": [
     {
-      "keyword": "<missing keyword>",
-      "location": "<suggested resume section to add it>",
-      "context": "<existing resume sentence/context>",
-      "suggestion": "<improved version with the keyword>"
+      "id": "<unique_suggestion_id>",
+      "type": "replace|add|enhance",
+      "keyword": "<target keyword or skill>",
+      "location": "<specific section like 'Work Experience - Job Title' or 'Skills Section'>",
+      "originalText": "<exact text from resume to be modified>",
+      "suggestedText": "<improved version with better keywords>",
+      "reason": "<why this change will improve ATS score>",
+      "impact": "high|medium|low",
+      "category": "skills|experience|keywords|formatting"
     }
-  ]
+  ],
+  "contextualInsights": {
+    "resumeStrengths": ["<strength 1>", "<strength 2>"],
+    "improvementAreas": ["<area 1>", "<area 2>"],
+    "overallTone": "<professional|technical|creative|etc>",
+    "experienceLevel": "<junior|mid|senior>"
+  }
 }
 
 Analysis Guidelines:
 1. Match Score (0-100): Base on keyword overlap, skill alignment, and experience relevance
 2. Matched Keywords: Find skills, technologies, and important terms present in both documents
 3. Missing Keywords: Identify crucial terms from job description missing in resume
-4. Suggestions: Provide 3-5 specific, actionable recommendations for improving keyword coverage
+4. Contextual Suggestions: Provide 5-8 specific, actionable recommendations that:
+   - Identify exact text in the resume that should be modified
+   - Suggest specific replacements that align with the candidate's actual experience
+   - Focus on rewording existing experience to match job description language
+   - Maintain the candidate's authentic experience while optimizing for ATS
 
-Focus on:
-- Hard skills and technologies
-- Soft skills mentioned in job requirements
-- Industry-specific terminology
-- Job titles and experience levels
-- Educational requirements
-- Certifications mentioned
+Suggestion Types:
+- "replace": Improve existing text with better keywords
+- "add": Add missing but relevant information
+- "enhance": Expand on existing points with more detail
+
+Focus Areas:
+- Exact phrase matching from job description
+- Industry-specific terminology alignment
+- Action verbs that match job requirements
+- Quantifiable achievements relevant to the role
+- Technical skills mentioned in job posting
+- Soft skills phrasing that matches job language
+
+For each suggestion:
+- Quote the EXACT text from resume (originalText)
+- Provide specific improved version (suggestedText)
+- Explain the ATS impact (reason)
+- Assess the improvement potential (impact: high/medium/low)
 
 Return only valid JSON without any additional text or formatting.
 `;
@@ -190,7 +251,7 @@ function generateFallbackAnalysis(resumeText: string, jobDescription: string): A
     'agile', 'scrum', 'project management', 'mentoring', 'training'
   ];
   
-  const allKeywords = [...techKeywords, ...softSkills, ...new Set(jobWords)];
+  const allKeywords = [...techKeywords, ...softSkills, ...Array.from(new Set(jobWords))];
   
   const matchedKeywords: Array<{ keyword: string; count: number }> = [];
   const missingKeywords: string[] = [];
@@ -215,15 +276,27 @@ function generateFallbackAnalysis(resumeText: string, jobDescription: string): A
   const matchScore = Math.min(100, Math.round((matchedWeight / Math.max(totalJobKeywords * 0.1, 1)) * 100));
   
   // Generate contextual suggestions
-  const suggestions = missingKeywords.slice(0, 4).map(keyword => {
+  const suggestions = missingKeywords.slice(0, 4).map((keyword, index) => {
     const locations = ['Skills section', 'Experience section', 'Summary section', 'Projects section'];
+    const types: Array<'replace' | 'add' | 'enhance'> = ['add', 'enhance', 'replace'];
+    const impacts: Array<'high' | 'medium' | 'low'> = ['high', 'medium', 'low'];
+    const categories: Array<'skills' | 'experience' | 'keywords' | 'formatting'> = ['skills', 'experience', 'keywords', 'formatting'];
+    
     const randomLocation = locations[Math.floor(Math.random() * locations.length)];
+    const randomType = types[Math.floor(Math.random() * types.length)];
+    const randomImpact = impacts[Math.floor(Math.random() * impacts.length)];
+    const randomCategory = categories[Math.floor(Math.random() * categories.length)];
     
     return {
+      id: `fallback_${index}_${Date.now()}`,
+      type: randomType,
       keyword,
       location: randomLocation,
-      context: `Consider adding ${keyword} to your ${randomLocation.toLowerCase()}`,
-      suggestion: `Add "${keyword}" to your ${randomLocation.toLowerCase()} if you have relevant experience. This keyword appears in the job description and could improve your ATS match score.`
+      originalText: `[Original text from ${randomLocation.toLowerCase()}]`,
+      suggestedText: `[Enhanced text including ${keyword}]`,
+      reason: `Adding "${keyword}" will improve ATS matching as it appears in the job description`,
+      impact: randomImpact,
+      category: randomCategory
     };
   });
   
@@ -231,6 +304,12 @@ function generateFallbackAnalysis(resumeText: string, jobDescription: string): A
     matchScore: Math.max(25, matchScore), // Minimum 25% to be encouraging
     matchedKeywords: matchedKeywords.slice(0, 8),
     missingKeywords: missingKeywords.slice(0, 6),
-    suggestions
+    suggestions,
+    contextualInsights: {
+      resumeStrengths: ['Well-structured format', 'Clear experience presentation'],
+      improvementAreas: ['Keyword optimization', 'ATS compatibility'],
+      overallTone: 'professional',
+      experienceLevel: 'mid-level'
+    }
   };
 }
